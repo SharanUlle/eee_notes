@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EEE Student Notes Hub</title>
+    <!-- Three.js Library for 3D Background -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons for aesthetic components -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --eee-blue: #0077c2;
+            --eee-dark: #001f3f;
+        }
+        html, body {
+            height: 100%;
+            margin: 0;
+            overflow-x: hidden; /* Prevent horizontal scroll */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827; /* Dark background color */
+        }
+        /* Style for the Three.js Canvas */
+        #three-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0; /* Ensures it is behind the main content */
+            pointer-events: none; /* Allows clicks to pass through to elements beneath if needed */
+        }
+        /* Ensure main content is visible and scrollable over the canvas */
+        .content-wrapper {
+            position: relative; 
+            z-index: 10; /* Ensures content sits above the canvas */
+            min-height: 100vh;
+            padding: 1rem 0; /* Add top/bottom padding for separation */
+        }
+        .scrollable-notes {
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <!-- 3D Background Canvas -->
+    <canvas id="three-bg"></canvas>
+
+    <!-- Global Variable Initialization (Required by environment, even if using mock API) -->
+    <script type="module">
+        // Mock global variables for environment compatibility
+        const __app_id = 'eee-notes-app';
+        const __firebase_config = '{}';
+        const __initial_auth_token = 'mock-auth-token';
+    </script>
+    <!-- End Global Variable Initialization -->
+
+    <!-- Main Content Wrapper -->
+    <div class="content-wrapper">
+        <div class="max-w-4xl mx-auto p-4 sm:p-0">
+            <!-- Main cards are kept white for contrast against the dark 3D background -->
+            <header class="text-center mb-10 p-6 bg-white shadow-xl rounded-xl border-t-4 border-[var(--eee-blue)]">
+                <div class="flex items-center justify-center space-x-3">
+                    <i data-lucide="graduation-cap" class="w-8 h-8 text-[var(--eee-blue)]"></i>
+                    <h1 class="text-3xl sm:text-4xl font-extrabold text-[var(--eee-dark)]">
+                        EEE Notes Sharing Portal
+                    </h1>
+                </div>
+                <p class="text-gray-500 mt-2">Upload, manage, and share your PDF resources with classmates.</p>
+            </header>
+
+            <!-- Upload Section -->
+            <section id="upload-section" class="mb-10 p-6 bg-white rounded-xl shadow-lg">
+                <h2 class="text-2xl font-semibold mb-4 text-[var(--eee-dark)] flex items-center">
+                    <i data-lucide="upload" class="w-5 h-5 mr-2 text-gray-500"></i> Upload New Note
+                </h2>
+                
+                <input 
+                    type="file" 
+                    id="pdf-upload" 
+                    accept="application/pdf" 
+                    class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none p-3"
+                    aria-label="PDF File Upload Input"
+                >
+                
+                <input 
+                    type="text" 
+                    id="note-title" 
+                    placeholder="Enter Note Title (e.g., Digital Logic Design Unit 3)"
+                    class="mt-4 p-3 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-[var(--eee-blue)] focus:border-[var(--eee-blue)] transition duration-150"
+                    aria-label="Note Title Input"
+                >
+                
+                <button 
+                    id="upload-button" 
+                    class="mt-4 w-full py-3 px-4 bg-[var(--eee-blue)] text-white font-bold rounded-lg hover:bg-opacity-90 transition duration-300 shadow-md flex items-center justify-center disabled:opacity-50"
+                    disabled
+                >
+                    <i data-lucide="plus-circle" class="w-5 h-5 mr-2"></i> 
+                    Upload Note
+                </button>
+                <p id="upload-status" class="mt-2 text-sm text-center"></p>
+            </section>
+
+            <!-- Notes List Section -->
+            <section id="notes-list-section" class="p-6 bg-white rounded-xl shadow-lg">
+                <h2 class="text-2xl font-semibold mb-4 text-[var(--eee-dark)] flex items-center">
+                    <i data-lucide="library" class="w-5 h-5 mr-2 text-gray-500"></i> Available Notes
+                </h2>
+                
+                <div id="notes-list-container" class="scrollable-notes space-y-3">
+                    <!-- Notes will be rendered here -->
+                </div>
+
+                <p id="empty-state" class="text-center text-gray-500 mt-6 hidden">
+                    No notes available. Be the first to upload!
+                </p>
+            </section>
+            
+            <!-- Custom Alert/Modal for Copying/Errors -->
+            <div id="custom-alert" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4 z-50">
+                <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full">
+                    <h3 id="alert-title" class="text-xl font-bold mb-3 text-[var(--eee-dark)]">Alert</h3>
+                    <p id="alert-message" class="text-gray-600 mb-4"></p>
+                    <button id="alert-close-btn" class="w-full py-2 bg-[var(--eee-blue)] text-white rounded-lg hover:bg-opacity-90 transition">
+                        OK
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- THREE.JS BACKGROUND LOGIC ---
+        let scene, camera, renderer, mesh, particleSystem;
+        const canvas = document.getElementById('three-bg');
+        const PARTICLE_COUNT = 500; // Number of "current" particles
+
+        function initThreeJS() {
+            // Setup scene
+            scene = new THREE.Scene();
+
+            // Setup camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 4; // Moved back for the larger mesh
+
+            // Setup renderer
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setClearColor(0x111827, 0); 
+
+            // --- 1. Circuit Skeleton (The Structure) ---
+            const geometry = new THREE.BoxGeometry(3, 3, 3, 15, 15, 15); // High segments for dense grid
+            
+            // Dimmer yellow base color for the skeleton structure
+            const baseColor = 0xAAAA00; 
+
+            // Material for the main wireframe lines
+            const material = new THREE.LineBasicMaterial({
+                color: baseColor, 
+                linewidth: 1,
+                transparent: true,
+                opacity: 0.3 // Make the skeleton dimmer
+            });
+
+            const edges = new THREE.EdgesGeometry(geometry);
+            mesh = new THREE.LineSegments(edges, material);
+            scene.add(mesh);
+
+            // --- 2. Flowing Current Particles (The Dots) ---
+            const particleGeometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(PARTICLE_COUNT * 3); // x, y, z for each particle
+
+            // Initialize particles randomly within the structure's volume
+            for (let i = 0; i < PARTICLE_COUNT * 3; i += 3) {
+                // Random position within the bounding box of the cube (3x3x3 centered at 0,0,0)
+                positions[i] = (Math.random() * 6) - 3;
+                positions[i + 1] = (Math.random() * 6) - 3;
+                positions[i + 2] = (Math.random() * 6) - 3;
+            }
+
+            particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            const particleMaterial = new THREE.PointsMaterial({
+                color: 0xFFFF00, // Brightest yellow for the current dots
+                size: 0.03,      // Small dot size
+                blending: THREE.AdditiveBlending, // Makes them glow
+                transparent: true,
+                opacity: 1.0
+            });
+
+            particleSystem = new THREE.Points(particleGeometry, particleMaterial);
+            scene.add(particleSystem);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = Date.now() * 0.0005;
+            const delta = 0.01; // Step size for particle movement
+
+            // --- 1. Animate Circuit Skeleton (Pulsating Structure) ---
+            const pulse = (Math.sin(time * 5) * 0.15) + 0.85; 
+
+            if (mesh && mesh.material) {
+                // Slow Rotation
+                mesh.rotation.x += 0.0005;
+                mesh.rotation.y += 0.001;
+                
+                // Pulsating Effect (Dimmer base color scale)
+                const material = mesh.material;
+                const baseColor = new THREE.Color(0xAAAA00); // Dimmer yellow
+                baseColor.multiplyScalar(pulse); 
+                material.color.copy(baseColor);
+                material.opacity = (Math.sin(time * 2) * 0.1) + 0.3; // Very subtle flicker
+            }
+
+            // --- 2. Animate Current Particles (Flowing Dots) ---
+            if (particleSystem) {
+                // Brightness pulse for the dots
+                const particlePulse = (Math.sin(time * 10) * 0.2) + 0.8;
+                particleSystem.material.opacity = particlePulse;
+                
+                const particlePositions = particleSystem.geometry.attributes.position.array;
+                
+                // Rotate the particles along with the mesh
+                particleSystem.rotation.x = mesh.rotation.x;
+                particleSystem.rotation.y = mesh.rotation.y;
+
+                // Simple motion simulation: drift and random jump (simulating flow)
+                for (let i = 0; i < PARTICLE_COUNT * 3; i += 3) {
+                    // Drift in a random, contained direction
+                    particlePositions[i] += (Math.random() - 0.5) * delta * 0.05;
+                    particlePositions[i + 1] += (Math.random() - 0.5) * delta * 0.05;
+                    particlePositions[i + 2] += (Math.random() - 0.5) * delta * 0.05;
+                    
+                    // Add a directional flow element (subtle bias along X and Y)
+                    particlePositions[i] += Math.sin(time * 0.5) * 0.005;
+                    particlePositions[i + 1] += Math.cos(time * 0.5) * 0.005;
+
+                    // If a particle drifts too far outside the main 3x3x3 volume, teleport it back
+                    const distSq = particlePositions[i] * particlePositions[i] + particlePositions[i+1] * particlePositions[i+1] + particlePositions[i+2] * particlePositions[i+2];
+                    if (distSq > 9.5) { 
+                         // Teleport particle to a new random location inside the volume
+                        particlePositions[i] = (Math.random() * 6) - 3;
+                        particlePositions[i + 1] = (Math.random() * 6) - 3;
+                        particlePositions[i + 2] = (Math.random() * 6) - 3;
+                    }
+                }
+
+                particleSystem.geometry.attributes.position.needsUpdate = true;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- MOCK API DATA & EXISTING APP LOGIC ---
+
+        let mockNotes = [
+            { id: 1, title: "Control Systems Basics (K-Map)", filename: "control_basics.pdf", uploader: "User-001A", size: "4.2 MB", date: "2025-10-10" },
+            { id: 2, title: "Microprocessors - 8085 Arch.", filename: "8085_architecture.pdf", uploader: "User-002B", size: "1.5 MB", date: "2025-10-09" },
+        ];
+        let nextId = 3;
+        const API_BASE_URL = 'http://localhost:8000'; 
+        
+        // --- UTILITY FUNCTIONS ---
+        
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function showAlert(title, message) {
+            document.getElementById('alert-title').textContent = title;
+            document.getElementById('alert-message').innerHTML = message; // Use innerHTML for bolding
+            document.getElementById('custom-alert').classList.remove('hidden');
+            document.getElementById('custom-alert').classList.add('flex');
+        }
+
+        document.getElementById('alert-close-btn').addEventListener('click', () => {
+            document.getElementById('custom-alert').classList.add('hidden');
+            document.getElementById('custom-alert').classList.remove('flex');
+        });
+
+        // --- RENDER LOGIC ---
+
+        function renderNotes() {
+            const container = document.getElementById('notes-list-container');
+            container.innerHTML = '';
+            
+            if (mockNotes.length === 0) {
+                document.getElementById('empty-state').classList.remove('hidden');
+                return;
+            }
+            document.getElementById('empty-state').classList.add('hidden');
+
+            mockNotes.forEach(note => {
+                const noteElement = document.createElement('div');
+                noteElement.id = `note-${note.id}`;
+                noteElement.className = 'flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border border-gray-200 bg-gray-50 hover:bg-white rounded-lg transition duration-200 shadow-sm';
+                
+                noteElement.innerHTML = `
+                    <div class="flex-grow mb-3 sm:mb-0">
+                        <p class="text-lg font-bold text-[var(--eee-dark)]">${note.title}</p>
+                        <p class="text-sm text-gray-600">
+                            <span class="font-medium text-[var(--eee-blue)]">${note.uploader}</span> 
+                            uploaded on ${note.date} (${note.size})
+                        </p>
+                    </div>
+                    <div class="flex space-x-2 flex-shrink-0">
+                        <button 
+                            data-id="${note.id}" 
+                            data-filename="${note.filename}"
+                            class="share-btn flex items-center px-3 py-2 text-xs font-semibold rounded-md text-white bg-green-500 hover:bg-green-600 transition"
+                            title="Copy Share Link"
+                        >
+                            <i data-lucide="share-2" class="w-4 h-4 mr-1"></i> Share
+                        </button>
+                        <a 
+                            href="${API_BASE_URL}/notes/${note.filename}" 
+                            target="_blank" 
+                            class="flex items-center px-3 py-2 text-xs font-semibold rounded-md text-white bg-indigo-500 hover:bg-indigo-600 transition"
+                            title="Download PDF"
+                        >
+                            <i data-lucide="download" class="w-4 h-4 mr-1"></i> Download
+                        </a>
+                        <button 
+                            data-id="${note.id}" 
+                            class="delete-btn flex items-center px-3 py-2 text-xs font-semibold rounded-md text-white bg-red-500 hover:bg-red-600 transition"
+                            title="Delete Note"
+                        >
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                `;
+                container.appendChild(noteElement);
+            });
+            
+            lucide.createIcons();
+            
+            document.querySelectorAll('.delete-btn').forEach(button => {
+                button.addEventListener('click', handleDeleteNote);
+            });
+            document.querySelectorAll('.share-btn').forEach(button => {
+                button.addEventListener('click', handleShareNote);
+            });
+        }
+
+        // --- EVENT HANDLERS (Same as before) ---
+        
+        function checkUploadReadiness() {
+            const fileInput = document.getElementById('pdf-upload');
+            const titleInput = document.getElementById('note-title');
+            const uploadButton = document.getElementById('upload-button');
+            
+            if (fileInput.files.length > 0 && titleInput.value.trim() !== '') {
+                uploadButton.disabled = false;
+            } else {
+                uploadButton.disabled = true;
+            }
+        }
+        
+        document.getElementById('pdf-upload').addEventListener('change', checkUploadReadiness);
+        document.getElementById('note-title').addEventListener('input', checkUploadReadiness);
+
+        async function handleUploadNote() {
+            const fileInput = document.getElementById('pdf-upload');
+            const titleInput = document.getElementById('note-title');
+            const uploadButton = document.getElementById('upload-button');
+            const statusText = document.getElementById('upload-status');
+            
+            if (fileInput.files.length === 0 || titleInput.value.trim() === '') {
+                showAlert('Error', 'Please select a PDF file and enter a title.');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const title = titleInput.value.trim();
+            
+            statusText.textContent = 'Uploading... Please wait.';
+            uploadButton.disabled = true;
+
+            // --- MOCK API CALL SIMULATION ---
+            await new Promise(resolve => setTimeout(resolve, 1500)); 
+            
+            const newNote = {
+                id: nextId++,
+                title: title,
+                filename: file.name,
+                uploader: 'You (Student EEE)', 
+                size: formatBytes(file.size),
+                date: new Date().toISOString().split('T')[0]
+            };
+            
+            mockNotes.unshift(newNote);
+            renderNotes();
+            
+            statusText.textContent = `Successfully uploaded: "${newNote.title}"`;
+            statusText.className = 'mt-2 text-sm text-center text-green-600';
+
+            // Reset form
+            fileInput.value = ''; 
+            titleInput.value = '';
+            uploadButton.disabled = true;
+            checkUploadReadiness();
+
+            setTimeout(() => {
+                statusText.textContent = '';
+                statusText.className = 'mt-2 text-sm text-center';
+            }, 3000);
+        }
+
+        async function handleDeleteNote(event) {
+            const noteId = parseInt(event.currentTarget.dataset.id, 10);
+            
+            // NOTE: Using a custom modal (`showAlert`) is preferred, but for simplicity
+            // in demonstrating the delete flow, we keep the quick check.
+            if (!confirm(`Are you sure you want to delete note ID ${noteId}? This cannot be undone.`)) {
+                 return;
+            }
+            
+            // --- MOCK API CALL SIMULATION ---
+            
+            mockNotes = mockNotes.filter(note => note.id !== noteId);
+            renderNotes();
+            showAlert('Success', `Note (ID: **${noteId}**) has been successfully removed.`);
+        }
+
+        function handleShareNote(event) {
+            const filename = event.currentTarget.dataset.filename;
+            const shareUrl = `${API_BASE_URL}/notes/${filename}`;
+            
+            const tempInput = document.createElement('input');
+            tempInput.value = shareUrl;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            try {
+                document.execCommand('copy');
+                showAlert('Share Link Copied!', `The direct link for **${filename}** has been copied to your clipboard. Share it with your classmates!`);
+            } catch (err) {
+                showAlert('Error', 'Could not automatically copy the link. Please manually copy this URL: ' + shareUrl);
+            }
+            document.body.removeChild(tempInput);
+        }
+
+        // --- INITIALIZATION ---
+        document.getElementById('upload-button').addEventListener('click', handleUploadNote);
+        
+        window.addEventListener('resize', onWindowResize);
+        
+        window.onload = function () {
+            // Initialize 3D background and start animation loop
+            try {
+                initThreeJS();
+                animate();
+            } catch (e) {
+                console.error("Three.js initialization failed:", e);
+                // Fallback: If 3D fails, ensure the body background is still dark.
+                document.body.style.backgroundColor = '#111827';
+            }
+
+            // Initialize app content
+            renderNotes();
+            lucide.createIcons();
+        };
+        
+    </script>
+</body>
+</html>
